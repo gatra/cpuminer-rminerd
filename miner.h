@@ -151,6 +151,10 @@ void sha256_transform_8way(uint32_t *state, const uint32_t *block, int swap);
 extern int scanhash_sha256d(int thr_id, uint32_t *pdata,
 	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done);
 
+
+extern int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
+	uint32_t max_nonce, unsigned long *hashes_done, unsigned int *pSieve);
+
 extern unsigned char *scrypt_buffer_alloc();
 extern int scanhash_scrypt(int thr_id, uint32_t *pdata,
 	unsigned char *scratchbuf, const uint32_t *ptarget,
@@ -247,5 +251,16 @@ extern bool tq_push(struct thread_q *tq, void *data);
 extern void *tq_pop(struct thread_q *tq, const struct timespec *abstime);
 extern void tq_freeze(struct thread_q *tq);
 extern void tq_thaw(struct thread_q *tq);
+
+/* for riecoin */
+extern int opt_sieve_size;
+extern int opt_max_prime;
+
+#define RIECOIN_DATA_DIFF  17
+#define RIECOIN_DATA_NTIME 18
+#define RIECOIN_DATA_NONCE 20
+
+extern int initPrimeTable( void );
+extern double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes );
 
 #endif /* __MINER_H__ */

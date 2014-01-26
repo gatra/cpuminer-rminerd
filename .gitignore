@@ -1,6 +1,6 @@
 
-minerd
-minerd.exe
+rminerd
+rminerd.exe
 *.o
 
 autom4te.cache

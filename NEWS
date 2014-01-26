@@ -1,3 +1,6 @@
+Version 3.0.0 - Oct 2013
+- First version of the riecoin fork
+
 Version 2.3.2 - Jul 10, 2013
 
 - Add optimizations for AVX2-capable x86-64 processors

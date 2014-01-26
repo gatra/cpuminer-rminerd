@@ -181,7 +181,7 @@ static const uint32_t sha256d_hash1[16] = {
 	0x00000000, 0x00000000, 0x00000000, 0x00000100
 };
 
-static void sha256d_80_swap(uint32_t *hash, const uint32_t *data)
+void sha256d_80_swap(uint32_t *hash, const uint32_t *data)
 {
 	uint32_t S[16];
 	int i;
