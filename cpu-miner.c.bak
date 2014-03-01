@@ -41,7 +41,7 @@
 #include "gmp.h"
 
 #define PROGRAM_NAME		"rminerd"
-#define DEF_RPC_URL		"http://127.0.0.1:28332/"
+#define DEF_RPC_URL		"http://127.0.0.1:9332/"
 #define LP_SCANTIME		60
 
 #ifdef __linux /* Linux specific policy and affinity management */
@@ -286,13 +286,13 @@ static time_t g_work_time;
 static time_t start_time;
 static pthread_mutex_t g_work_lock;
 
-uint64_t *get_work_struct_nonce_pointer(struct work * p)
+uint32_t *get_work_struct_nonce_pointer(struct work * p)
 {
 	if( opt_algo == ALGO_RIECOIN )
 	{
-		return (uint64_t *)(p->data + RIECOIN_DATA_NONCE);
+		return p->data + RIECOIN_DATA_NONCE;
 	}
-	return (uint64_t *)(p->data + 19);
+	return p->data + 19;
 }
 
 static bool jobj_binary(const json_t *obj, const char *key,
@@ -734,16 +734,13 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		diff_to_target(work->target, sctx->job.diff);
 }
 
-/*#define MAX_USABLE_NONCE ( opt_algo == ALGO_RIECOIN ? 0xffffffffffffffULL : 0xffffffffU )*/
-#define MAX_USABLE_NONCE ( opt_algo == ALGO_RIECOIN ? 0x7fffffffffULL : 0xffffffffU )
-
 static void *miner_thread(void *userdata)
 {
 	struct thr_info *mythr = userdata;
 	int thr_id = mythr->id;
 	struct work work;
-	uint64_t max_nonce;
-	uint64_t end_nonce;
+	uint32_t max_nonce;
+	uint32_t end_nonce = 0xffffffffU / opt_n_threads * (thr_id + 1) - 0x20;
 	unsigned char *scratchbuf = NULL;
 	char s[16];
 	int i;
@@ -774,11 +771,9 @@ static void *miner_thread(void *userdata)
 	{
 		pSieve = (uint32_t *)malloc( opt_sieve_size/8 );
 	}
-	end_nonce = MAX_USABLE_NONCE / opt_n_threads * (thr_id + 1) - 0x20;
 
 	while (1) {
-		unsigned long ulhashes_done;
-		uint64_t hashes_done;
+		unsigned long hashes_done;
 		struct timeval tv_start, tv_end, diff;
 		int64_t max64;
 		int rc;
@@ -810,7 +805,7 @@ static void *miner_thread(void *userdata)
 		}
 		if (memcmp(work.data, g_work.data, 76)) {
 			memcpy(&work, &g_work, sizeof(struct work));
-			*get_work_struct_nonce_pointer(&work) = MAX_USABLE_NONCE / opt_n_threads * thr_id;
+			*get_work_struct_nonce_pointer(&work) = 0xffffffffU / opt_n_threads * thr_id;
 		}
 		pthread_mutex_unlock(&g_work_lock);
 		work_restart[thr_id].restart = 0;
@@ -835,21 +830,19 @@ static void *miner_thread(void *userdata)
 		else
 			max_nonce = *get_work_struct_nonce_pointer(&work) + max64;
 		
-		hashes_done = ulhashes_done = 0;
+		hashes_done = 0;
 		gettimeofday(&tv_start, NULL);
 
 		/* scan nonces for a proof-of-work hash */
 		switch (opt_algo) {
 		case ALGO_SCRYPT:
 			rc = scanhash_scrypt(thr_id, work.data, scratchbuf, work.target,
-			                     max_nonce, &ulhashes_done);
-			hashes_done = ulhashes_done;
+			                     max_nonce, &hashes_done);
 			break;
 
 		case ALGO_SHA256D:
 			rc = scanhash_sha256d(thr_id, work.data, work.target,
-			                      max_nonce, &ulhashes_done);
-			hashes_done = ulhashes_done;
+			                      max_nonce, &hashes_done);
 			break;
 
 		case ALGO_RIECOIN:
@@ -874,16 +867,8 @@ static void *miner_thread(void *userdata)
 		if (!opt_quiet) {
 			sprintf(s, thr_hashrates[thr_id] >= 1e6 ? "%.0f" : "%.2f",
 				1e-3 * thr_hashrates[thr_id]);
-			if( opt_algo == ALGO_RIECOIN )
-			{
-				applog(LOG_INFO, "thread %d: %"PRIu64" numbers, %s knumbers/s",
+			applog(LOG_INFO, "thread %d: %lu hashes, %s khash/s",
 				thr_id, hashes_done, s);
-		}
-			else
-			{
-				applog(LOG_INFO, "thread %d: %"PRIu64" hashes, %s khash/s",
-					thr_id, hashes_done, s);
-			}
 		}
 		if (/*opt_benchmark && */ thr_id == opt_n_threads - 1) {
 			double hashrate = 0.;
@@ -911,7 +896,7 @@ static void *miner_thread(void *userdata)
 		{
 			if( opt_benchmark )
 			{
-				applog(LOG_INFO, "NEW BLOCK %"PRIx64" total found: %u in %d seconds",
+				applog(LOG_INFO, "NEW BLOCK %08x total found: %u in %d seconds",
 					*get_work_struct_nonce_pointer(&work), ++accepted_count, time(NULL) - start_time);
 			}
 			else if( !submit_work(mythr, &work) )

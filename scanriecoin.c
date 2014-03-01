@@ -3,6 +3,8 @@
  * Copyright 2011-2013 pooler
  * Copyright 2013 gatra
  *
+ * function single_modinv copied from jhPrimeminer-hg5fm
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
  * Software Foundation; either version 2 of the License, or (at your option)
@@ -18,17 +20,40 @@
 #include <gmp.h>
 
 
+#undef REPORT_TESTS
+//#define REPORT_TESTS
+
 extern void sha256d_80_swap(uint32_t *hash, const uint32_t *data);
+
 
 static unsigned int largestPrimeInTable;
 static unsigned int *primeTable;
-
+static unsigned int *primeTableInverses;
 static unsigned int primeTableAllocatedSize;
 static unsigned int primeTableSize;
 
+#if 0
+const unsigned int fixedMod = 210;
+const unsigned int fixedModDelta = 97;
 
-    int isPrime( int candidate )
-    {
+const unsigned int startingPrimeIndex = 4;
+
+//const unsigned int fixedMod = 2310;
+//const unsigned int fixedModDelta = 937;
+#else
+
+const unsigned int fixedMod = 2310;
+const unsigned int fixedModDelta = 97;
+
+const unsigned int startingPrimeIndex = 5;
+
+const unsigned int efficiencyDivisor = 11-6;
+
+#endif
+
+
+int isPrime( int candidate )
+{
         for( unsigned int i = 0; i < primeTableSize; i++ )
         {
             const int prime = primeTable[i];
@@ -38,7 +63,76 @@ static unsigned int primeTableSize;
                 return 0;
         }
         return 1;
-    }
+}
+
+
+int single_modinv (int a, int modulus)
+{ /* start of single_modinv */
+	int ps1, ps2, parity, dividend, divisor, rem, q, t;
+	
+	a = a % modulus;
+	
+	q = 1;
+	rem = a;
+	dividend = modulus;
+	divisor = a;
+	ps1 = 1;
+	ps2 = 0;
+	parity = 0;
+	while (divisor > 1)
+	{
+		rem = dividend - divisor;
+		t = rem - divisor;
+		if (t >= 0) {
+			q += ps1;
+			rem = t;
+			t -= divisor;
+			if (t >= 0) {
+				q += ps1;
+				rem = t;
+				t -= divisor;
+				if (t >= 0) {
+					q += ps1;
+					rem = t;
+					t -= divisor;
+					if (t >= 0) {
+						q += ps1;
+						rem = t;
+						t -= divisor;
+						if (t >= 0) {
+							q += ps1;
+							rem = t;
+							t -= divisor;
+							if (t >= 0) {
+								q += ps1;
+								rem = t;
+								t -= divisor;
+								if (t >= 0) {
+									q += ps1;
+									rem = t;
+									t -= divisor;
+									if (t >= 0) {
+										q += ps1;
+										rem = t;
+										if (rem >= divisor) {
+											q = dividend/divisor;
+											rem = dividend - q * divisor;
+											q *= ps1;
+										}}}}}}}}}
+		q += ps2;
+		parity = ~parity;
+		dividend = divisor;
+		divisor = rem;
+		ps2 = ps1;
+		ps1 = q;
+	}
+
+	if (parity == 0)
+		return (ps1);
+	else
+		return (modulus - ps1);
+} /* end of single_modinv */
+
 
 int initPrimeTable( void )
 {
@@ -49,7 +143,7 @@ int initPrimeTable( void )
 	d /= log(largestPrimeInTable);
 	primeTableAllocatedSize = (unsigned int)(ceil(d) + 1); // upper bound on number of primes less than largestPrimeInTable
 	primeTable = (unsigned int *) malloc( sizeof(unsigned int) * primeTableAllocatedSize );
-
+	primeTableInverses = (unsigned int *) malloc( sizeof(unsigned int) * primeTableAllocatedSize );
 	applog(LOG_INFO, "allocated space for %u primes in table", primeTableAllocatedSize);
 	
 	primeTableSize = 1;
@@ -63,6 +157,10 @@ int initPrimeTable( void )
 				applog(LOG_ERR, "primes don't fit allocated space"); // should never happen
 				return 1;
 			}
+			if( i > 7 )
+			{
+				primeTableInverses[primeTableSize] = i - single_modinv( fixedMod, i );
+			}
 			primeTable[primeTableSize++] = i;
 		}
 	}
@@ -72,6 +170,12 @@ int initPrimeTable( void )
 // end of init
 
 
+struct sieveData
+{
+	uint32_t *pSieve;
+	int x;
+};
+
 void sieveReset( uint32_t *pSieve, int index )
 {
 	pSieve[index>>5] &= ~(  1U << (index & 0x1f)  );
@@ -80,44 +184,89 @@ uint32_t sieveGet( uint32_t *pSieve, int index )
 {
 	return pSieve[index>>5] & (  1U << (index & 0x1f)  );
 }
-void init( int *pSieve, const mpz_t base )
+
+uint32_t i2d( struct sieveData *pSieve, uint32_t index ) // sieve index to number offset (delta)
 {
-        memset( pSieve, 0xff, opt_sieve_size/8 );
+	return index * fixedMod + pSieve->x;
+}
 
-        for( unsigned int primeIndex = 0; primeIndex < primeTableSize; primeIndex++ )
+void init( struct sieveData *pSieve, const mpz_t base )
+{
+        memset( pSieve->pSieve, 0xff, opt_sieve_size/8 );
+        
+/*
+        base = b30 (30)
+        base = bp  (p)
+
+        base + x = 11 (30)          base + x + q * 30 = 0 (p)   q= -(base+x) * 30^-1 (p)
+        x = 11 - b30 (30) 
+        let bx = base + x
+        
+        i2d = i*30 + x
+        d2i = ( d - x ) / 30
+        
+        base + xx = 0 (p)
+        xx = -bp (p)
+        xx = x (30)
+
+        base + x = 11 (30)
+        x = 11 - b30 (30) 
+        let bx = base + x
+        
+        bx + 30 * i = 0 (p)
+        i = -bx * 30^-1 (p)
+        
+        i = q * p - bx * 30^-1 
+        
+        
+        base + x + 30*i = 0 (p)
+
+        d = 30^-1 * (-base-x) (p)
+*/
+	int x = (fixedMod + fixedModDelta - mpz_fdiv_ui(base, fixedMod)) % fixedMod;
+	pSieve->x = x;
+
+        for( unsigned int primeIndex = startingPrimeIndex; primeIndex < primeTableSize; primeIndex++ )
         {
-            int prime = primeTable[primeIndex];
-            
-            for( int sieveIndex = prime - mpz_fdiv_ui(base, prime);
-                 sieveIndex < opt_sieve_size;
-                 sieveIndex += prime )
-            {
-        			sieveReset(pSieve, sieveIndex);
+		unsigned int prime = primeTable[primeIndex];
+		unsigned int bp = mpz_fdiv_ui(base, prime);
+		unsigned int k = primeTableInverses[primeIndex];
+		unsigned int k2 = ((4 * k)%prime);
+		unsigned int k3 = ((6 * k)%prime);
+		unsigned int k4 = ((10 * k)%prime);
+		unsigned int k5 = ((12 * k)%prime);
+		unsigned int k6 = ((16 * k)%prime);
+		unsigned int max = opt_sieve_size - prime;
 
-            }
+		for( unsigned int sieveIndex = ((k * (x + bp)) % prime);
+			sieveIndex < max;
+			sieveIndex += prime )
+		{
+			sieveReset(pSieve->pSieve, sieveIndex);
+			sieveReset(pSieve->pSieve, sieveIndex + k2);
+			sieveReset(pSieve->pSieve, sieveIndex + k3);
+			sieveReset(pSieve->pSieve, sieveIndex + k4);
+			sieveReset(pSieve->pSieve, sieveIndex + k5);
+			sieveReset(pSieve->pSieve, sieveIndex + k6);
+		}
         }
 }
 
-int getNext( int *pSieve, int _index )
+int getNext( uint32_t *pSieve, int _index )
 {
-        if( _index >= opt_sieve_size - 17 )
+        if( _index >= opt_sieve_size )
         {
             return -1;
         }
         while( 1 )
         {
             _index++;
-            if( _index >= opt_sieve_size - 17 )
+            if( _index >= opt_sieve_size )
             {
-                return -1;
+		return -1;
             }
-            if( sieveGet(pSieve, _index) && 
-                sieveGet(pSieve, _index+4) && 
-                sieveGet(pSieve, _index+6) && 
-                sieveGet(pSieve, _index+10) &&
-                sieveGet(pSieve, _index+12) && 
-                sieveGet(pSieve, _index+16) )
-                return _index;
+            if( sieveGet(pSieve, _index) )
+		return _index;
         }
 }
 
@@ -167,22 +316,6 @@ unsigned int generatePrimeBase( mpz_t bnTarget, uint32_t *hash, uint32_t compact
 
 double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes )
 {
-/*
-
-Name of prime k-tuple	Width	Pattern	Hardy-Littlewood constant Hk	Reciprocal Ck = 1/Hk
-2-tuple, twin primes, twins	 2	0 2	1.32032	0.757392
-3-tuple, triplet (type A)	 6	0 4 6	2.85825	0.349864
-3-tuple, triplet (type B)	 6	0 2 6	2.85825	0.349864
-4-tuple, quadruplet	 8	0 2 6 8	4.15118	0.240895
-5-tuple, quintuplet (type A)	 12	0 4 6 10 12	10.13179	0.09869924
-5-tuple, quintuplet (type B)	 12	0 2 6 8 12	10.13179	0.09869924
-6-tuple, sextuplet	 16	0 4 6 10 12 16	17.29861	0.05780811
-7-tuple, septuplet (type A)	 20	0 2 6 8 12 18 20	53.97195	0.01852814
-7-tuple, septuplet (type B)	 20	0 2 8 12 14 18 20	53.97195	0.01852814
-8-tuple, octuplet (type A)	 26	0 2 6 8 12 18 20 26	178.26195	0.005609722
-8-tuple, octuplet (type B)	 26	  0 6 8 14 18 20 24 26  	178.26195	0.005609722
-8-tuple, octuplet (type C)	 26	  0 2 6 12 14 20 24 26  	475.36521	0.002103646
-*/
 	mpz_t nBits;
 	double f;
 	static const double l2 = 0.69314718056; // ln(2)
@@ -192,6 +325,7 @@ Name of prime k-tuple	Width	Pattern	Hardy-Littlewood constant Hk	Reciprocal Ck =
 	mpz_clear(nBits);
 	
 	f = pow( f * l2, primes ) / hashrate;
+
 	if( primes == 6 )
 		return f * 0.05780811; // reciprocal of Hardy-Littlewood constant H6
 	if( primes == 5 )
@@ -203,51 +337,65 @@ Name of prime k-tuple	Width	Pattern	Hardy-Littlewood constant Hk	Reciprocal Ck =
 	if( primes == 2 )
 		return f * 0.757392; // reciprocal of Hardy-Littlewood constant H2 ???
 	return 0;
-
 }
 
-#define MR_TESTS 12
+#define MR_TESTS 1
 
 
 int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
-	uint32_t max_nonce, unsigned long *hashes_done, uint32_t *pSieve)
+	uint64_t max_nonce, uint64_t *hashes_done, uint32_t *pSieve)
 {
 	uint32_t hash[8] __attribute__((aligned(32)));
-	uint32_t n = pdata[RIECOIN_DATA_NONCE];
-	const uint32_t first_nonce = n;
+	uint64_t n = *(uint64_t *)(pdata + RIECOIN_DATA_NONCE);
+	const uint64_t first_nonce = n;
+	#ifdef REPORT_TESTS
+		int tests;
+	#endif
 	mpz_t b;
-	int sieveIndex = 0;
+	int sieveIndex;
+	struct sieveData mySieve;
+	mySieve.pSieve = pSieve;
 
 	mpz_t bnTarget;
 	mpz_init( bnTarget );
 
-	if( max_nonce <= opt_sieve_size )
+	if( max_nonce <= (opt_sieve_size + 1) * fixedMod )
 	{
 		max_nonce = 0;
 	}
 	else
 	{
-		max_nonce -= opt_sieve_size;
+		max_nonce -= (opt_sieve_size + 1) * fixedMod;
 	}
 
 	mpz_init(b);
 	
-	uint32_t aux = pdata[RIECOIN_DATA_NONCE];
-	pdata[RIECOIN_DATA_NONCE] = 0x80000000UL;
+	uint64_t aux = *(uint64_t *)&pdata[RIECOIN_DATA_NONCE];
+	*(uint32_t *)&pdata[RIECOIN_DATA_NONCE] = 0x80000000UL;
+	*(((uint32_t *)&pdata[RIECOIN_DATA_NONCE]) + 1) = 0;
 	sha256d_80_swap(hash, pdata);
-	pdata[RIECOIN_DATA_NONCE] = aux;
+	*(uint64_t *)&pdata[RIECOIN_DATA_NONCE] = aux;
 
 	generatePrimeBase( b, hash, swab32(pdata[RIECOIN_DATA_DIFF]) );
-
+	mpz_tdiv_q_2exp( b, b, 32 );
+	mpz_add_ui( b, b, n >> 32 );
+	mpz_mul_2exp( b, b, 32 );
 	mpz_add_ui( b, b, n );
 
 	do {
-		init( pSieve, b );
-		
-		while( (sieveIndex = getNext(pSieve, sieveIndex) ) > 0 )
+               	#ifdef REPORT_TESTS
+			tests = 0;
+		#endif
+		init( &mySieve, b );
+		sieveIndex = 0;
+
+		while( (sieveIndex = getNext(mySieve.pSieve, sieveIndex) ) >= 0 )
                 {
+                	#ifdef REPORT_TESTS
+                		tests++;
+                	#endif
 			mpz_set( bnTarget, b );
-			mpz_add_ui( bnTarget, bnTarget, sieveIndex );
+			mpz_add_ui( bnTarget, bnTarget, i2d(&mySieve, sieveIndex) );
                 	if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
                 	{
 				mpz_add_ui( bnTarget, bnTarget, 4 );
@@ -257,17 +405,18 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 	                	if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
         	        	{
 					mpz_add_ui( bnTarget, bnTarget, 4 );
-                    			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+                    			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) || primes < 4 )
                     			{
 						mpz_add_ui( bnTarget, bnTarget, 2 );
-                        			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+                        			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) || primes < 5 )
                         			{
 						mpz_add_ui( bnTarget, bnTarget, 4 );
                         			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) || primes < 6 )
                         			{
-							pdata[RIECOIN_DATA_NONCE] = n + sieveIndex;
+							*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = n + i2d(&mySieve, sieveIndex);
 							pdata[RIECOIN_DATA_NONCE] = swab32(pdata[RIECOIN_DATA_NONCE]);
-							*hashes_done = n + sieveIndex - first_nonce + 1;
+							pdata[RIECOIN_DATA_NONCE+1] = swab32(pdata[RIECOIN_DATA_NONCE+1]);
+							*hashes_done = (n + i2d(&mySieve, sieveIndex) - first_nonce + 1) / efficiencyDivisor;
 							mpz_clear(bnTarget);
 							mpz_clear(b);
 							return 1;
@@ -276,14 +425,17 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 				} }
 			}
 		}
+		#ifdef REPORT_TESTS
+			applog(LOG_INFO, "thread %d tests: %d   n = %"PRIu64",  i2d = %u   max = %"PRIu64", idx = %d, x = %d ", thr_id, tests, n, i2d(&mySieve, opt_sieve_size), max_nonce, sieveIndex, mySieve.x );
+		#endif
 		
-		n += opt_sieve_size;
-		mpz_add_ui(b, b, opt_sieve_size );
+		n += i2d(&mySieve, opt_sieve_size);
+		mpz_add_ui( b, b, i2d(&mySieve, opt_sieve_size) );
 	} while (n < max_nonce && !work_restart[thr_id].restart);
 	
-	*hashes_done = n - first_nonce + 1;
-	pdata[RIECOIN_DATA_NONCE] = n;
-	mpz_clear(bnTarget);
-	mpz_clear(b);
+	*hashes_done = (n - first_nonce + 1) / efficiencyDivisor;
+	*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = max_nonce;
+	mpz_clear (bnTarget);
+	mpz_clear (b);
 	return 0;
 }
