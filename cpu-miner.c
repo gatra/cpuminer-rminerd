@@ -102,12 +102,6 @@ struct workio_cmd {
 	} u;
 };
 
-enum sha256_algos {
-	ALGO_SCRYPT,		/* scrypt(1024,1,1) */
-	ALGO_SHA256D,		/* SHA-256d */
-	ALGO_RIECOIN,		/* prime numbers riecoin style */
-};
-
 static const char *algo_names[] = {
 	[ALGO_SCRYPT]		= "scrypt",
 	[ALGO_SHA256D]		= "sha256d",
@@ -131,7 +125,7 @@ int opt_timeout = 270;
 int opt_scantime = 5;
 static json_t *opt_config;
 static const bool opt_time = true;
-static enum sha256_algos opt_algo = ALGO_RIECOIN;
+enum sha256_algos opt_algo = ALGO_RIECOIN;
 static int opt_n_threads;
 static int num_processors;
 static char *rpc_url;
@@ -400,15 +394,17 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 	}
 
 	if (have_stratum) {
-		uint32_t ntime, nonce;
+		uint64_t ntime = 0;
+		uint32_t nonce[8];
 		char *ntimestr, *noncestr, *xnonce2str;
 
 		if (!work->job_id)
 			return true;
 		le32enc(&ntime, work->data[17]);
-		le32enc(&nonce, *get_work_struct_nonce_pointer(work));
-		ntimestr = bin2hex((const unsigned char *)(&ntime), 4);
-		noncestr = bin2hex((const unsigned char *)(&nonce), 4);
+		for (i = 0; i < ARRAY_SIZE(nonce); i++)
+			nonce[i] = le32dec( ((uint32_t *)get_work_struct_nonce_pointer(work)) + i );
+		ntimestr = bin2hex((const unsigned char *)(&ntime), 8);
+		noncestr = bin2hex((const unsigned char *)(&nonce), 32);
 		xnonce2str = bin2hex(work->xnonce2, work->xnonce2_len);
 		sprintf(s,
 			"{\"method\": \"mining.submit\", \"params\": [\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"], \"id\":4}",
@@ -626,8 +622,8 @@ static bool get_work(struct thr_info *thr, struct work *work)
 		}
 		else
 		{
-		work->data[20] = 0x80000000;
-		work->data[31] = 0x00000280;
+			work->data[20] = 0x80000000;
+			work->data[31] = 0x00000280;
 		}
 		return true;
 	}
@@ -714,10 +710,22 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		work->data[1 + i] = le32dec((uint32_t *)sctx->job.prevhash + i);
 	for (i = 0; i < 8; i++)
 		work->data[9 + i] = be32dec((uint32_t *)merkle_root + i);
-	work->data[17] = le32dec(sctx->job.ntime);
-	work->data[18] = le32dec(sctx->job.nbits);
-	work->data[20] = 0x80000000;
-	work->data[31] = 0x00000280;
+	
+	if (opt_algo == ALGO_RIECOIN)
+	{
+		work->data[RIECOIN_DATA_DIFF] = le32dec(sctx->job.nbits);
+		work->data[RIECOIN_DATA_NTIME] = le32dec(sctx->job.ntime);
+		work->data[28] = 0x80000000;
+		work->data[31] = 0x00000380; // 112 * 8
+		work->primes = sctx->job.diff;
+	}
+	else
+	{
+		work->data[17] = le32dec(sctx->job.ntime);
+		work->data[18] = le32dec(sctx->job.nbits);
+		work->data[20] = 0x80000000;
+		work->data[31] = 0x00000280;
+	}
 
 	pthread_mutex_unlock(&sctx->work_lock);
 

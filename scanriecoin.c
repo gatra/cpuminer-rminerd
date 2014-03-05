@@ -328,7 +328,7 @@ double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes 
 
 	if( primes == 6 )
 		return f * 0.05780811; // reciprocal of Hardy-Littlewood constant H6
-	if( primes == 5 )
+/*	if( primes == 5 )
 		return f * 0.09869924; // reciprocal of Hardy-Littlewood constant H5 (type b)
 	if( primes == 4 )
 		return f * 0.240895; // reciprocal of Hardy-Littlewood constant H4 (delta=4)
@@ -336,6 +336,7 @@ double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes 
 		return f * 0.349864; // reciprocal of Hardy-Littlewood constant H3 (type a)
 	if( primes == 2 )
 		return f * 0.757392; // reciprocal of Hardy-Littlewood constant H2 ???
+		*/
 	return 0;
 }
 
@@ -345,6 +346,7 @@ double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes 
 int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 	uint64_t max_nonce, uint64_t *hashes_done, uint32_t *pSieve)
 {
+	int primes_found;
 	uint32_t hash[8] __attribute__((aligned(32)));
 	uint64_t n = *(uint64_t *)(pdata + RIECOIN_DATA_NONCE);
 	const uint64_t first_nonce = n;
@@ -396,33 +398,74 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
                 	#endif
 			mpz_set( bnTarget, b );
 			mpz_add_ui( bnTarget, bnTarget, i2d(&mySieve, sieveIndex) );
-                	if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+                	if( mpz_probab_prime_p ( bnTarget, MR_TESTS) == 0 )
                 	{
-				mpz_add_ui( bnTarget, bnTarget, 4 );
-	                	if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
-	                	{
-				mpz_add_ui( bnTarget, bnTarget, 2 );
-	                	if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
-        	        	{
-					mpz_add_ui( bnTarget, bnTarget, 4 );
-                    			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) || primes < 4 )
-                    			{
-						mpz_add_ui( bnTarget, bnTarget, 2 );
-                        			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) || primes < 5 )
-                        			{
-						mpz_add_ui( bnTarget, bnTarget, 4 );
-                        			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) || primes < 6 )
-                        			{
-							*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = n + i2d(&mySieve, sieveIndex);
-							pdata[RIECOIN_DATA_NONCE] = swab32(pdata[RIECOIN_DATA_NONCE]);
-							pdata[RIECOIN_DATA_NONCE+1] = swab32(pdata[RIECOIN_DATA_NONCE+1]);
-							*hashes_done = (n + i2d(&mySieve, sieveIndex) - first_nonce + 1) / efficiencyDivisor;
-							mpz_clear(bnTarget);
-							mpz_clear(b);
-							return 1;
-						} }
-					}
-				} }
+                		continue;
+                	}
+                	primes_found = 1;
+			mpz_add_ui( bnTarget, bnTarget, 4 );
+			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+			{
+				primes_found++;
+			}
+			else
+			{
+				if( primes_found + 4 < primes )
+				{
+					continue;
+				}
+			}
+
+			mpz_add_ui( bnTarget, bnTarget, 2 );
+			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+			{
+				primes_found++;
+			}
+			else
+			{
+				if( primes_found + 3 < primes )
+				{
+					continue;
+				}
+			}
+			mpz_add_ui( bnTarget, bnTarget, 4 );
+			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+			{
+				primes_found++;
+			}
+			else
+			{
+				if( primes_found + 2 < primes )
+				{
+					continue;
+				}
+			}
+			mpz_add_ui( bnTarget, bnTarget, 2 );
+			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+			{
+				primes_found++;
+			}
+			else
+			{
+				if( primes_found + 1 < primes )
+				{
+					continue;
+				}
+			}
+			mpz_add_ui( bnTarget, bnTarget, 4 );
+			if( mpz_probab_prime_p ( bnTarget, MR_TESTS) )
+			{
+				primes_found++;
+			}
+			if( primes_found >= primes )
+			{
+				*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = n + i2d(&mySieve, sieveIndex);
+				pdata[RIECOIN_DATA_NONCE] = swab32(pdata[RIECOIN_DATA_NONCE]);
+				pdata[RIECOIN_DATA_NONCE+1] = swab32(pdata[RIECOIN_DATA_NONCE+1]);
+				*hashes_done = (n + i2d(&mySieve, sieveIndex) - first_nonce + 1) / efficiencyDivisor;
+				mpz_clear(bnTarget);
+				mpz_clear(b);
+				return 1;
 			}
 		}
 		#ifdef REPORT_TESTS

@@ -252,6 +252,14 @@ extern void *tq_pop(struct thread_q *tq, const struct timespec *abstime);
 extern void tq_freeze(struct thread_q *tq);
 extern void tq_thaw(struct thread_q *tq);
 
+enum sha256_algos {
+	ALGO_SCRYPT,		/* scrypt(1024,1,1) */
+	ALGO_SHA256D,		/* SHA-256d */
+	ALGO_RIECOIN,		/* prime numbers riecoin style */
+};
+
+extern enum sha256_algos opt_algo;
+
 /* for riecoin */
 extern int opt_sieve_size;
 extern int opt_max_prime;

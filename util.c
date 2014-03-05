@@ -907,7 +907,10 @@ start:
 	sctx->xnonce1 = malloc(sctx->xnonce1_size);
 	hex2bin(sctx->xnonce1, xnonce1, sctx->xnonce1_size);
 	sctx->xnonce2_size = xn2_size;
-	sctx->next_diff = 1.0;
+	if( opt_algo == ALGO_RIECOIN )
+		sctx->next_diff = 6;
+	else
+		sctx->next_diff = 1.0;
 	pthread_mutex_unlock(&sctx->work_lock);
 
 	if (opt_debug && sid)
