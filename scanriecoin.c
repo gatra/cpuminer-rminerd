@@ -376,6 +376,12 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 	*(uint32_t *)&pdata[RIECOIN_DATA_NONCE] = 0x80000000UL;
 	*(((uint32_t *)&pdata[RIECOIN_DATA_NONCE]) + 1) = 0;
 	sha256d_80_swap(hash, pdata);
+	if (opt_debug) {
+		char *hash2str = bin2hex((char *)hash, sizeof(hash));
+		applog(LOG_DEBUG, "DEBUG: hash=%s",
+		       hash2str);
+		free(hash2str);
+	}
 	*(uint64_t *)&pdata[RIECOIN_DATA_NONCE] = aux;
 
 	generatePrimeBase( b, hash, swab32(pdata[RIECOIN_DATA_DIFF]) );
@@ -465,6 +471,11 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 				*hashes_done = (n + i2d(&mySieve, sieveIndex) - first_nonce + 1) / efficiencyDivisor;
 				mpz_clear(bnTarget);
 				mpz_clear(b);
+				if (opt_debug) {
+					char *header2str = bin2hex((char *)pdata, 128);
+					applog(LOG_DEBUG, "DEBUG: header=%s", header2str);
+					free(header2str);
+				}
 				return 1;
 			}
 		}

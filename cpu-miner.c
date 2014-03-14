@@ -1,7 +1,7 @@
 /*
  * Copyright 2010 Jeff Garzik
- * Copyright 2012-2013 pooler
- * Copyright 2013 Gatra
+ * Copyright 2012-2014 pooler
+ * Copyright 2014 Gatra
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -49,6 +49,7 @@
 static inline void drop_policy(void)
 {
 	struct sched_param param;
+	param.sched_priority = 0;
 
 #ifdef SCHED_IDLE
 	if (unlikely(sched_setscheduler(0, SCHED_IDLE, &param) == -1))
@@ -64,7 +65,7 @@ static inline void affine_to_cpu(int id, int cpu)
 
 	CPU_ZERO(&set);
 	CPU_SET(cpu, &set);
-	sched_setaffinity(0, sizeof(&set), &set);
+	sched_setaffinity(0, sizeof(set), &set);
 }
 #elif defined(__FreeBSD__) /* FreeBSD specific policy and affinity management */
 #include <sys/cpuset.h>
@@ -77,7 +78,7 @@ static inline void affine_to_cpu(int id, int cpu)
 	cpuset_t set;
 	CPU_ZERO(&set);
 	CPU_SET(cpu, &set);
-	cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_CPUSET, -1, sizeof(cpuset_t), &set);
+	cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(cpuset_t), &set);
 }
 #else
 static inline void drop_policy(void)
@@ -145,11 +146,11 @@ int opt_sieve_size = 1048576;
 int opt_max_prime = 1048576/2;
 
 pthread_mutex_t applog_lock;
-pthread_mutex_t stats_lock;
+static pthread_mutex_t stats_lock;
 
 static unsigned long accepted_count = 0L;
 static unsigned long rejected_count = 0L;
-double *thr_hashrates;
+static double *thr_hashrates;
 
 #ifdef HAVE_GETOPT_LONG
 #include <getopt.h>
@@ -400,9 +401,22 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 
 		if (!work->job_id)
 			return true;
-		le32enc(&ntime, work->data[17]);
+		if (opt_algo == ALGO_RIECOIN)
+		{
+			uint32_t t1;
+			uint32_t t2;
+			le32enc(&t1, work->data[RIECOIN_DATA_NTIME]);
+			le32enc(&t2, work->data[RIECOIN_DATA_NTIME+1]);
+			ntime = t1;
+			ntime <<= 32;
+			ntime |= t2;
+		}
+		else
+		{
+			le32enc(&ntime, work->data[17]);
+		}
 		for (i = 0; i < ARRAY_SIZE(nonce); i++)
-			nonce[i] = le32dec( ((uint32_t *)get_work_struct_nonce_pointer(work)) + i );
+			nonce[i] = le32dec( ((uint32_t *)get_work_struct_nonce_pointer(work)) + ARRAY_SIZE(nonce) - 1 - i );
 		ntimestr = bin2hex((const unsigned char *)(&ntime), 8);
 		noncestr = bin2hex((const unsigned char *)(&nonce), 32);
 		xnonce2str = bin2hex(work->xnonce2, work->xnonce2_len);
@@ -715,8 +729,8 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 	{
 		work->data[RIECOIN_DATA_DIFF] = le32dec(sctx->job.nbits);
 		work->data[RIECOIN_DATA_NTIME] = le32dec(sctx->job.ntime);
-		work->data[28] = 0x80000000;
-		work->data[31] = 0x00000380; // 112 * 8
+//		work->data[28] = 0x80000000;
+//		work->data[31] = 0x00000380; // 112 * 8
 		work->primes = sctx->job.diff;
 	}
 	else
@@ -724,8 +738,8 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		work->data[17] = le32dec(sctx->job.ntime);
 		work->data[18] = le32dec(sctx->job.nbits);
 		work->data[20] = 0x80000000;
-		work->data[31] = 0x00000280;
 	}
+	work->data[31] = 0x00000280;
 
 	pthread_mutex_unlock(&sctx->work_lock);
 
@@ -1388,7 +1402,7 @@ static void parse_cmdline(int argc, char *argv[])
 }
 
 #ifndef WIN32
-void signal_handler(int sig)
+static void signal_handler(int sig)
 {
 	switch (sig) {
 	case SIGHUP:
@@ -1419,13 +1433,21 @@ int main(int argc, char *argv[])
 	/* parse command line */
 	parse_cmdline(argc, argv);
 
+
+	if (!rpc_userpass) {
+		rpc_userpass = malloc(strlen(rpc_user) + strlen(rpc_pass) + 2);
+		if (!rpc_userpass)
+			return 1;
+		sprintf(rpc_userpass, "%s:%s", rpc_user, rpc_pass);
+	}
+
 	pthread_mutex_init(&applog_lock, NULL);
 	pthread_mutex_init(&stats_lock, NULL);
 	pthread_mutex_init(&g_work_lock, NULL);
 	pthread_mutex_init(&stratum.sock_lock, NULL);
 	pthread_mutex_init(&stratum.work_lock, NULL);
 
-	flags = strncmp(rpc_url, "https:", 6)
+	flags = !opt_benchmark && strncmp(rpc_url, "https:", 6)
 	      ? (CURL_GLOBAL_ALL & ~CURL_GLOBAL_SSL)
 	      : CURL_GLOBAL_ALL;
 	if (curl_global_init(flags)) {
@@ -1456,10 +1478,10 @@ int main(int argc, char *argv[])
 	num_processors = sysinfo.dwNumberOfProcessors;
 #elif defined(_SC_NPROCESSORS_CONF)
 	num_processors = sysconf(_SC_NPROCESSORS_CONF);
-#elif defined(HW_NCPU)
+#elif defined(CTL_HW) && defined(HW_NCPU)
 	int req[] = { CTL_HW, HW_NCPU };
 	size_t len = sizeof(num_processors);
-	v = sysctl(req, 2, &num_processors, &len, NULL, 0);
+	sysctl(req, 2, &num_processors, &len, NULL, 0);
 #else
 	num_processors = 1;
 #endif
@@ -1467,13 +1489,6 @@ int main(int argc, char *argv[])
 		num_processors = 1;
 	if (!opt_n_threads)
 		opt_n_threads = num_processors;
-
-	if (!rpc_userpass) {
-		rpc_userpass = malloc(strlen(rpc_user) + strlen(rpc_pass) + 2);
-		if (!rpc_userpass)
-			return 1;
-		sprintf(rpc_userpass, "%s:%s", rpc_user, rpc_pass);
-	}
 
 #ifdef HAVE_SYSLOG_H
 	if (use_syslog)

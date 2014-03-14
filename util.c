@@ -1,6 +1,6 @@
 /*
  * Copyright 2010 Jeff Garzik
- * Copyright 2012-2013 pooler
+ * Copyright 2012-2014 pooler
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -377,7 +377,8 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 
 	/* If X-Stratum was found, activate Stratum */
 	if (want_stratum && hi.stratum_url &&
-	    !strncasecmp(hi.stratum_url, "stratum+tcp://", 14)) {
+	    !strncasecmp(hi.stratum_url, "stratum+tcp://", 14) &&
+	    !(opt_proxy && opt_proxy_type == CURLPROXY_HTTP)) {
 		have_stratum = true;
 		tq_push(thr_info[stratum_thr_id].q, hi.stratum_url);
 		hi.stratum_url = NULL;
@@ -908,7 +909,7 @@ start:
 	hex2bin(sctx->xnonce1, xnonce1, sctx->xnonce1_size);
 	sctx->xnonce2_size = xn2_size;
 	if( opt_algo == ALGO_RIECOIN )
-		sctx->next_diff = 6;
+		sctx->next_diff = 4;
 	else
 		sctx->next_diff = 1.0;
 	pthread_mutex_unlock(&sctx->work_lock);
