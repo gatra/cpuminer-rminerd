@@ -293,6 +293,15 @@ void SetCompact(mpz_t p, uint32_t nCompact)
 
 #define HASH_LEN_IN_BITS 256
 
+unsigned int getTrailingZeros( uint32_t compactBits )
+{
+    mpz_t nBits;
+    SetCompact( nBits, compactBits );
+    unsigned int trailingZeros = mpz_get_ui (nBits) - 1 - zeroesBeforeHashInPrime - HASH_LEN_IN_BITS;
+    mpz_clear(nBits);
+    return trailingZeros;
+}
+
 unsigned int generatePrimeBase( mpz_t bnTarget, uint32_t *hash, uint32_t compactBits )
 {
 	int i;
@@ -306,11 +315,8 @@ unsigned int generatePrimeBase( mpz_t bnTarget, uint32_t *hash, uint32_t compact
 	mpz_add_ui(bnTarget,bnTarget,(hash[i/32] & 1));
         hash[i/32] >>= 1;
     }
-    mpz_t nBits;
-    SetCompact( nBits, compactBits );
-    unsigned int trailingZeros = mpz_get_ui (nBits) - 1 - zeroesBeforeHashInPrime - HASH_LEN_IN_BITS;
+    unsigned int trailingZeros = getTrailingZeros(compactBits);
     mpz_mul_2exp(bnTarget,bnTarget,trailingZeros);
-    mpz_clear(nBits);
     return trailingZeros;
 }
 

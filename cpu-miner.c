@@ -44,6 +44,9 @@
 #define DEF_RPC_URL		"http://127.0.0.1:28332/"
 #define LP_SCANTIME		60
 
+extern const unsigned int efficiencyDivisor;
+extern unsigned int getTrailingZeros( uint32_t compactBits );
+
 #ifdef __linux /* Linux specific policy and affinity management */
 #include <sched.h>
 static inline void drop_policy(void)
@@ -756,8 +759,17 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		diff_to_target(work->target, sctx->job.diff);
 }
 
-/*#define MAX_USABLE_NONCE ( opt_algo == ALGO_RIECOIN ? 0xffffffffffffffULL : 0xffffffffU )*/
-#define MAX_USABLE_NONCE ( opt_algo == ALGO_RIECOIN ? 0x7fffffffffULL : 0xffffffffU )
+uint64_t getMaxUsableNonce( uint32_t *pdata )
+{
+	if( opt_algo == ALGO_RIECOIN )
+	{
+		if( getTrailingZeros( swab32(pdata[RIECOIN_DATA_DIFF]) ) > 64 )
+			return 0x7fffffffffffffffLL;
+		return 0x7fffffffffLL;
+	}
+	return 0xffffffffU;
+}
+
 
 static void *miner_thread(void *userdata)
 {
@@ -796,7 +808,7 @@ static void *miner_thread(void *userdata)
 	{
 		pSieve = (uint32_t *)malloc( opt_sieve_size/8 );
 	}
-	end_nonce = MAX_USABLE_NONCE / opt_n_threads * (thr_id + 1) - 0x20;
+	end_nonce = 0xffffffffU / opt_n_threads * (thr_id + 1) - 0x20;
 
 	while (1) {
 		unsigned long ulhashes_done;
@@ -832,10 +844,12 @@ static void *miner_thread(void *userdata)
 		}
 		if (memcmp(work.data, g_work.data, 76)) {
 			memcpy(&work, &g_work, sizeof(struct work));
-			*get_work_struct_nonce_pointer(&work) = MAX_USABLE_NONCE / opt_n_threads * thr_id;
+			*get_work_struct_nonce_pointer(&work) = getMaxUsableNonce(work.data) / opt_n_threads * thr_id;
 		}
 		pthread_mutex_unlock(&g_work_lock);
 		work_restart[thr_id].restart = 0;
+
+		end_nonce = getMaxUsableNonce(work.data) / opt_n_threads * (thr_id + 1) - 0x20;
 		
 		/* adjust max_nonce to meet target scan time */
 		if (have_stratum)
@@ -844,6 +858,10 @@ static void *miner_thread(void *userdata)
 			max64 = g_work_time + (have_longpoll ? LP_SCANTIME : opt_scantime)
 			      - time(NULL);
 		max64 *= thr_hashrates[thr_id];
+		if( opt_algo == ALGO_RIECOIN )
+		{
+			max64 *= efficiencyDivisor;
+		}
 		if (max64 <= 0)
 		{
 			max64 = opt_algo == ALGO_SCRYPT ? 0xfffLL : 0x1fffffLL;
@@ -916,8 +934,9 @@ static void *miner_thread(void *userdata)
 				if( opt_algo == ALGO_RIECOIN )
 				{
 					applog(LOG_INFO, "Total: %s knumbers/s", s);
-					applog(LOG_INFO, "Expected average time to block: %f",
-						riecoin_time_to_block(hashrate, swab32(work.data[RIECOIN_DATA_DIFF]), work.primes) );
+					if( work.primes == 6 )
+						applog(LOG_INFO, "Expected average time to block: %f",
+							riecoin_time_to_block(hashrate, swab32(work.data[RIECOIN_DATA_DIFF]), work.primes) );
 					applog(LOG_INFO, "accepted: %u in %d seconds",
 						accepted_count, time(NULL) - start_time);
 				}
@@ -938,8 +957,8 @@ static void *miner_thread(void *userdata)
 			}
 			else if( !submit_work(mythr, &work) )
 			{
-			break;
-	}
+				break;
+			}
 		}
 	}
 
