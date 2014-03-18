@@ -404,7 +404,7 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 		init( &mySieve, b );
 		sieveIndex = 0;
 
-		while( (sieveIndex = getNext(mySieve.pSieve, sieveIndex) ) >= 0 )
+		while( (sieveIndex = getNext(mySieve.pSieve, sieveIndex) ) >= 0 && !work_restart[thr_id].restart )
                 {
                 	#ifdef REPORT_TESTS
                 		tests++;
@@ -472,6 +472,9 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 			}
 			if( primes_found >= primes )
 			{
+				#ifdef REPORT_TESTS
+					applog(LOG_INFO, "thread %d tests! %d   n = %"PRIu64",  i2d = %u   max = %"PRIu64", idx = %d, x = %d ", thr_id, tests, n, i2d(&mySieve, opt_sieve_size), max_nonce, sieveIndex, mySieve.x );
+				#endif
 				*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = n + i2d(&mySieve, sieveIndex);
 				pdata[RIECOIN_DATA_NONCE] = swab32(pdata[RIECOIN_DATA_NONCE]);
 				pdata[RIECOIN_DATA_NONCE+1] = swab32(pdata[RIECOIN_DATA_NONCE+1]);
@@ -495,7 +498,7 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 	} while (n < max_nonce && !work_restart[thr_id].restart);
 	
 	*hashes_done = (n - first_nonce + 1) / efficiencyDivisor;
-	*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = max_nonce;
+	*(uint64_t *)(pdata + RIECOIN_DATA_NONCE) = n + 1;
 	mpz_clear (bnTarget);
 	mpz_clear (b);
 	return 0;

@@ -284,6 +284,8 @@ static time_t g_work_time;
 static time_t start_time;
 static pthread_mutex_t g_work_lock;
 
+static void restart_threads(void);
+
 uint64_t *get_work_struct_nonce_pointer(struct work * p)
 {
 	if( opt_algo == ALGO_RIECOIN )
@@ -808,7 +810,7 @@ static void *miner_thread(void *userdata)
 	{
 		pSieve = (uint32_t *)malloc( opt_sieve_size/8 );
 	}
-	end_nonce = 0xffffffffU / opt_n_threads * (thr_id + 1) - 0x20;
+	end_nonce = 0x7fffffffU / opt_n_threads * (thr_id + 1) - 0x20;
 
 	while (1) {
 		unsigned long ulhashes_done;
@@ -821,10 +823,14 @@ static void *miner_thread(void *userdata)
 			while (!*g_work.job_id || time(NULL) >= g_work_time + 120)
 				sleep(1);
 			pthread_mutex_lock(&g_work_lock);
-			if (*get_work_struct_nonce_pointer(&work) >= end_nonce - opt_sieve_size)
+			if (*get_work_struct_nonce_pointer(&work) >= end_nonce)
 			{
 				stratum_gen_work(&stratum, &g_work);
-				// applog(LOG_ERR, "stratum_gen_work!");
+				restart_threads();
+				if (opt_debug)
+          applog(LOG_DEBUG, "stratum_gen_work thread %d %"PRIu64" %"PRIu64,
+            thr_id, *get_work_struct_nonce_pointer(&work), end_nonce - 2 * opt_sieve_size );
+
 			}
 		} else {
 			/* obtain new work from internal workio thread */
@@ -877,34 +883,32 @@ static void *miner_thread(void *userdata)
 			max_nonce = end_nonce;
 		else
 			max_nonce = *get_work_struct_nonce_pointer(&work) + max64;
-		//applog(LOG_ERR, "first_nonce %"PRIx64, *get_work_struct_nonce_pointer(&work));
-		//applog(LOG_ERR, "max_nonce %"PRIx64, max_nonce);
 		
 		hashes_done = ulhashes_done = 0;
 		gettimeofday(&tv_start, NULL);
 
 		/* scan nonces for a proof-of-work hash */
 		switch (opt_algo) {
-		case ALGO_SCRYPT:
-			rc = scanhash_scrypt(thr_id, work.data, scratchbuf, work.target,
-			                     max_nonce, &ulhashes_done);
-			hashes_done = ulhashes_done;
-			break;
+			case ALGO_SCRYPT:
+				rc = scanhash_scrypt(thr_id, work.data, scratchbuf, work.target,
+			        	             max_nonce, &ulhashes_done);
+				hashes_done = ulhashes_done;
+				break;
 
-		case ALGO_SHA256D:
-			rc = scanhash_sha256d(thr_id, work.data, work.target,
-			                      max_nonce, &ulhashes_done);
-			hashes_done = ulhashes_done;
-			break;
+			case ALGO_SHA256D:
+				rc = scanhash_sha256d(thr_id, work.data, work.target,
+			                      	max_nonce, &ulhashes_done);
+				hashes_done = ulhashes_done;
+				break;
 
-		case ALGO_RIECOIN:
-			rc = scanhash_riecoin(thr_id, work.data, work.primes,
-			                      max_nonce, &hashes_done, pSieve);
-			break;
+			case ALGO_RIECOIN:
+				rc = scanhash_riecoin(thr_id, work.data, work.primes,
+			                      	max_nonce, &hashes_done, pSieve);
+				break;
 
-		default:
-			/* should never happen */
-			goto out;
+			default:
+				/* should never happen */
+				goto out;
 		}
 
 		/* record scanhash elapsed time */
@@ -964,6 +968,8 @@ static void *miner_thread(void *userdata)
 			{
 				break;
 			}
+			end_nonce = opt_sieve_size; // force get new work
+			//applog(LOG_DEBUG, "rc != 0 thread %d", thr_id);
 		}
 	}
 
