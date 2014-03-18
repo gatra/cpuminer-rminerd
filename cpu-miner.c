@@ -766,8 +766,8 @@ uint64_t getMaxUsableNonce( uint32_t *pdata )
 	if( opt_algo == ALGO_RIECOIN )
 	{
 		if( getTrailingZeros( swab32(pdata[RIECOIN_DATA_DIFF]) ) > 64 )
-			return 0x7fffffffffffffffLL;
-		return 0x7fffffffffLL;
+			return 0x7fffffffffffLL;
+		return 0x7ffffffffLL;
 	}
 	return 0xffffffffU;
 }
