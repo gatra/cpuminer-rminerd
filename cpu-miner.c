@@ -255,8 +255,8 @@ btc/ltc:
  0  4 int nVersion;
  4 32 uint256 hashPrevBlock;
 36 32 uint256 hashMerkleRoot;
-68  4 bitsType nBits;
-72  4 int nTime;
+68  4 int nTime;
+72  4 bitsType nBits;
 76  4 int nOnce;
 total 80
 
@@ -821,14 +821,17 @@ static void *miner_thread(void *userdata)
 			while (!*g_work.job_id || time(NULL) >= g_work_time + 120)
 				sleep(1);
 			pthread_mutex_lock(&g_work_lock);
-			if (*get_work_struct_nonce_pointer(&work) >= end_nonce)
+			if (*get_work_struct_nonce_pointer(&work) >= end_nonce - opt_sieve_size)
+			{
 				stratum_gen_work(&stratum, &g_work);
+				// applog(LOG_ERR, "stratum_gen_work!");
+			}
 		} else {
 			/* obtain new work from internal workio thread */
 			pthread_mutex_lock(&g_work_lock);
 			if (!(have_longpoll || have_stratum) ||
 					time(NULL) >= g_work_time + LP_SCANTIME*3/4 ||
-					*get_work_struct_nonce_pointer(&work) >= end_nonce) {
+					*get_work_struct_nonce_pointer(&work) >= end_nonce - opt_sieve_size) {
 				if (unlikely(!get_work(mythr, &g_work))) {
 					applog(LOG_ERR, "work retrieval failed, exiting "
 						"mining thread %d", mythr->id);
@@ -874,6 +877,8 @@ static void *miner_thread(void *userdata)
 			max_nonce = end_nonce;
 		else
 			max_nonce = *get_work_struct_nonce_pointer(&work) + max64;
+		//applog(LOG_ERR, "first_nonce %"PRIx64, *get_work_struct_nonce_pointer(&work));
+		//applog(LOG_ERR, "max_nonce %"PRIx64, max_nonce);
 		
 		hashes_done = ulhashes_done = 0;
 		gettimeofday(&tv_start, NULL);
@@ -918,7 +923,7 @@ static void *miner_thread(void *userdata)
 			{
 				applog(LOG_INFO, "thread %d: %"PRIu64" numbers, %s knumbers/s",
 				thr_id, hashes_done, s);
-		}
+			}
 			else
 			{
 				applog(LOG_INFO, "thread %d: %"PRIu64" hashes, %s khash/s",

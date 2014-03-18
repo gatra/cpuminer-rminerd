@@ -322,6 +322,7 @@ unsigned int generatePrimeBase( mpz_t bnTarget, uint32_t *hash, uint32_t compact
 
 double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes )
 {
+#define PRIMES_FOR_BLOCK 6
 	mpz_t nBits;
 	double f;
 	static const double l2 = 0.69314718056; // ln(2)
@@ -330,9 +331,9 @@ double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes 
 	f = mpz_get_ui (nBits);
 	mpz_clear(nBits);
 	
-	f = pow( f * l2, primes ) / hashrate;
+	f = pow( f * l2, PRIMES_FOR_BLOCK ) / hashrate;
 
-	if( primes == 6 )
+//	if( primes == 6 )
 		return f * 0.05780811; // reciprocal of Hardy-Littlewood constant H6
 /*	if( primes == 5 )
 		return f * 0.09869924; // reciprocal of Hardy-Littlewood constant H5 (type b)
@@ -343,7 +344,7 @@ double riecoin_time_to_block( double hashrate, uint32_t compactBits, int primes 
 	if( primes == 2 )
 		return f * 0.757392; // reciprocal of Hardy-Littlewood constant H2 ???
 		*/
-	return 0;
+//	return 0;
 }
 
 #define MR_TESTS 1
@@ -367,14 +368,14 @@ int scanhash_riecoin(int thr_id, uint32_t *pdata, const int primes,
 	mpz_t bnTarget;
 	mpz_init( bnTarget );
 
-	if( max_nonce <= (opt_sieve_size + 1) * fixedMod )
+/*	if( max_nonce <= (opt_sieve_size + 1) * fixedMod )
 	{
 		max_nonce = 0;
 	}
 	else
 	{
 		max_nonce -= (opt_sieve_size + 1) * fixedMod;
-	}
+	}*/
 
 	mpz_init(b);
 	
